@@ -49,8 +49,11 @@ function read(o, key, min, max) {
 
 /** A public key of a site: it goes into a path, so letters, digits, `_` and `-` only. */
 const PUBLIC_KEY = /^[A-Za-z0-9_-]{1,128}$/;
-/** A serial number of an inverter: it becomes an external id. */
-const SERIAL = /^[A-Za-z0-9_-]{4,40}$/;
+/**
+ * A serial number of an inverter: it becomes an external id. At least one
+ * digit, so that no word (`__proto__`, `constructor`, `prototype`...) is one.
+ */
+const SERIAL = /^(?=[^0-9]*[0-9])[A-Za-z0-9_-]{4,40}$/;
 /** A name shown in Gladys: letters, digits and common punctuation, no control character. */
 const NAME = /^[\p{L}\p{N}][\p{L}\p{N} '.,()&+_-]{0,59}$/u;
 
@@ -203,9 +206,15 @@ export function parseSite({ site = {}, kpisPower, kpisEnergy } = {}) {
   for (const key of Object.keys(v)) {
     if (v[key] === undefined) delete v[key];
   }
+  // A meter is proven by a grid value only: without a meter the API repeats
+  // the production as `consumption_*` (the answers of the library), so the
+  // consumption is kept only with a grid value in the same read.
+  if (!GRID_VALUES.some((k) => k in v)) {
+    for (const k of CONSUMPTION_VALUES) delete v[k];
+  }
   const groups = [];
   if (BATTERY_VALUES.some((k) => k in v)) groups.push('battery');
-  if (METER_VALUES.some((k) => k in v)) groups.push('meter');
+  if (GRID_VALUES.some((k) => k in v)) groups.push('meter');
   return { values: v, groups };
 }
 
@@ -218,12 +227,5 @@ export const BATTERY_VALUES = [
   'batteryChargedTotal',
   'batteryDischargedTotal',
 ];
-export const METER_VALUES = [
-  'gridNetImport',
-  'gridExport',
-  'gridImportTotal',
-  'gridExportTotal',
-  'consumptionPower',
-  'consumptionToday',
-  'consumptionTotal',
-];
+export const GRID_VALUES = ['gridNetImport', 'gridExport', 'gridImportTotal', 'gridExportTotal'];
+export const CONSUMPTION_VALUES = ['consumptionPower', 'consumptionToday', 'consumptionTotal'];

@@ -62,8 +62,8 @@
       "max": 3600,
       "label": { "en": "Reading interval (s)", "fr": "Intervalle de lecture (s)" },
       "description": {
-        "en": "How often the account is read (one request, then three per installation): 300 s by default, the pace at which the portal itself refreshes. Nothing reads it faster, not even the test button.",
-        "fr": "Fréquence de lecture du compte (une requête, puis trois par installation) : 300 s par défaut, le rythme auquel le portail se met lui-même à jour. Rien ne le lit plus vite, pas même le bouton de test."
+        "en": "How often the account is read (one request, then three per installation): 300 s by default, the pace at which the portal itself refreshes. Nothing reads it faster, not even the test button, except new credentials, tried at once.",
+        "fr": "Fréquence de lecture du compte (une requête, puis trois par installation) : 300 s par défaut, le rythme auquel le portail se met lui-même à jour. Rien ne le lit plus vite, pas même le bouton de test, sauf de nouveaux identifiants, essayés tout de suite."
       }
     }
   ],

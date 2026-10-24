@@ -16,6 +16,14 @@
 - Whether the API asks for a pace (429, Retry-After) at 5 minutes with several
   sites.
 
+- Whether `pv_now`, `battery_now` and the grid powers stay frozen when the
+  inverters stop talking (night, outage): `pv_now` is left out once every
+  inverter with a readable time is silent for 2 h (review r1, point 3); the
+  battery and the meter are not, as they may talk while the inverters sleep.
+- The encoding of HTTP Basic for a password with non-ASCII characters: UTF-8
+  here, latin1 in aiohttp (python-autarco); a refusal is final, the docs warn
+  (review r1, point 5).
+
 ## Ideas
 
 - A "Sensor only" option for the production index (as gladys-sonnen) if
@@ -101,3 +109,25 @@
   devices, starting from a rotating device when one read has more.
 - **No custom User-Agent**, no imitation, no Bluetooth, no network discovery.
 - **Gladys version**: `>=5.2.0`, like the other energy integrations.
+- **Review r1**:
+  1. A read of the previous generation that ends after a (re)start with the
+     same credentials keeps its refusal or pause, and a late success lifts
+     refusal, pause and failures (nothing published); the status is set again
+     by the current generation once that read ends.
+  2. A site path without an answer in time ends that site only; the read
+     stops only when Autarco is out of reach (connection refused, DNS) or two
+     sites in a row do not answer. The first site read turns at each read.
+     The status separates "no answer", "error of the service" and "not
+     read", and says "the other sites are up to date" only when one was read
+     in full.
+  3. `pvPower` of a site is left out when every inverter with a readable time
+     is silent for more than 2 h (`Date` of the service).
+  4. Pauses and the wait after a restart run on the monotonic clock in
+     memory (wall clock only for /data), the pause capped at 6 h at each use.
+  5. HTTP Basic in UTF-8 (aiohttp: latin1): comment, TODO and docs.
+  6. A serial number needs a digit (`__proto__` and other words refused).
+  7. The `meter` group needs a grid value; `consumption_*` is kept only with
+     a grid value in the same read (without a meter the API repeats the
+     production there).
+  8. Texts: the refusal status, the acceptance answer, the manifest and the
+     pause durations of the docs.

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AutarcoClient, AutarcoError, basicAuth } from '../src/autarco/client.js';
 import { MAX_BODY_BYTES } from '../src/constants.js';
-import { createFetch, timeoutError } from './helpers/fakeFetch.js';
+import { createFetch, refusedError, timeoutError } from './helpers/fakeFetch.js';
 import { EMAIL, NOW, PASSWORD, account, autarco, json } from './fixtures/autarco.js';
 
 const CREDENTIALS = { email: EMAIL, password: PASSWORD };
@@ -126,15 +126,54 @@ test('readAll: a refusal of a site skips its other paths; a 429 stops; the netwo
   );
   assert.equal((await codeOf(limited.client.readAll(CREDENTIALS))).code, 'rate_limited');
 
+  // A site without an answer ends that site only: the next one is read.
   const routes = autarco();
   routes['/api/site/site_key_1/kpis/energy'] = () => {
     throw timeoutError();
   };
-  const cut = clientOf(routes);
-  const partial = await cut.client.readAll(CREDENTIALS);
+  const slow = clientOf(routes);
+  const partial = await slow.client.readAll(CREDENTIALS);
   assert.deepEqual(partial.sites[0].missing, ['kpisEnergy', 'power']);
-  assert.deepEqual(partial.sites[1].missing, ['kpisPower', 'kpisEnergy', 'power']);
-  assert.equal(cut.fake.calls.length, 3);
+  assert.equal(partial.sites[0].timedOut, true);
+  assert.deepEqual(partial.sites[1].missing, []);
+  assert.ok(partial.sites[1].kpisEnergy);
+  assert.equal(slow.fake.calls.length, 6);
+
+  // Autarco out of reach (connection refused): the rest of the read stops.
+  const refusedRoutes = autarco();
+  refusedRoutes['/api/site/site_key_1/kpis/power'] = () => {
+    throw refusedError();
+  };
+  const cut = clientOf(refusedRoutes);
+  const stopped = await cut.client.readAll(CREDENTIALS);
+  assert.equal(stopped.sites[1].unread, true);
+  assert.deepEqual(stopped.sites[1].missing, ['kpisPower', 'kpisEnergy', 'power']);
+  assert.equal(cut.fake.calls.length, 2);
+
+  // Two sites in a row without an answer: the read stops (bounded length).
+  const three = autarco({
+    '/api/site/': () => ({
+      data: [...account().data, { site_id: 3000, public_key: 'site_key_3', health: 'OK' }],
+    }),
+  });
+  for (const key of ['site_key_1', 'site_key_2']) {
+    three[`/api/site/${key}/kpis/power`] = () => {
+      throw timeoutError();
+    };
+  }
+  const bounded = clientOf(three);
+  const two = await bounded.client.readAll(CREDENTIALS);
+  assert.equal(two.sites[2].unread, true);
+  assert.equal(bounded.fake.calls.length, 3);
+
+  // The first site turns: start 1 reads site 2 first, the order of the account kept.
+  const turning = clientOf(autarco());
+  const turned = await turning.client.readAll(CREDENTIALS, { start: 1 });
+  assert.ok(turning.fake.calls[1].path.includes('site_key_2'));
+  assert.deepEqual(
+    turned.sites.map((e) => e.site.siteId),
+    ['1000', '2000'],
+  );
 
   const skipped = clientOf(autarco());
   const some = await skipped.client.readAll(CREDENTIALS, { skip: (id) => id === '2000' });

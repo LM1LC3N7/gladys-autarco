@@ -86,7 +86,12 @@ function serverTimeOf(response) {
   return Number.isFinite(at) ? at : undefined;
 }
 
-/** The HTTP Basic header of the account (UTF-8, as aiohttp's BasicAuth). */
+/**
+ * The HTTP Basic header of the account. Encoded in UTF-8 (RFC 7617 `charset`
+ * of browsers and Node). Note: aiohttp's BasicAuth, used by python-autarco,
+ * encodes in latin1 by default; for a password with non-ASCII characters the
+ * two differ, and which one my.autarco.com expects is not confirmed (TODO.md).
+ */
 export function basicAuth(email, password) {
   return `Basic ${Buffer.from(`${email}:${password}`, 'utf8').toString('base64')}`;
 }
@@ -169,45 +174,65 @@ export class AutarcoClient {
    * of a site that fails with an error of the service (5xx, an odd answer)
    * only leaves its values out (`missing`); one that refuses the credentials
    * (401/403) marks the site `denied` and skips its other paths (the account
-   * just took them: they are good, only that site is closed to them). A 429
-   * anywhere stops the read; a network failure stops the remaining requests
-   * (kept: what came). `skip(siteId)` true leaves a site unread this time
-   * (a denied site waiting). `alive()` false (a restart, a new configuration)
-   * stops between two requests.
+   * just took them: they are good, only that site is closed to them). A
+   * path without an answer in time ends that site only (`timedOut`), the
+   * read goes on with the next sites; two sites in a row without an answer,
+   * or the service out of reach (connection refused, DNS), stop the remaining
+   * requests (kept: what came). A 429 anywhere stops the read. The sites are
+   * read from the `start`-th (turning at each read: none is always last);
+   * the result keeps the order of the account. `skip(siteId)` true leaves a
+   * site unread this time (a denied site waiting). `alive()` false (a
+   * restart, a new configuration) stops between two requests.
    * @returns {Promise<{ sites: Array<{ site, kpisPower?, kpisEnergy?, power?,
-   *   serverTime?: number, missing: string[], denied: boolean, skipped: boolean }>,
+   *   serverTime?: number, missing: string[], denied: boolean, skipped: boolean,
+   *   timedOut: boolean }>,
    *   more: boolean, serverTime?: number }>} `serverTime`: the `Date` of the
    *   first answer of the site (of the account for the read)
    */
-  async readAll(credentials, { alive = () => true, skip = () => false } = {}) {
+  async readAll(credentials, { alive = () => true, skip = () => false, start = 0 } = {}) {
     const account = await this.get('', credentials);
     const { sites, more } = parseAccount(account.answer);
     if (sites === undefined) {
       throw new AutarcoError('unknown_answer');
     }
     const result = { sites: [], more, serverTime: account.serverTime };
-    let cut = false;
     for (const site of sites) {
-      const entry = { site, missing: [], denied: false, skipped: false };
-      result.sites.push(entry);
+      result.sites.push({
+        site,
+        missing: [],
+        denied: false,
+        skipped: false,
+        timedOut: false,
+        unread: false,
+      });
+    }
+    // The first site read turns at each read: none is always last.
+    const first = sites.length > 0 ? ((start % sites.length) + sites.length) % sites.length : 0;
+    let cut = false;
+    let timeoutsInRow = 0;
+    for (let i = 0; i < result.sites.length; i += 1) {
+      const entry = result.sites[(first + i) % result.sites.length];
       if (cut || !alive()) {
+        entry.unread = true;
         entry.missing.push(...SITE_READS.map(([name]) => name));
         continue;
       }
-      if (skip(site.siteId)) {
+      if (skip(entry.site.siteId)) {
         entry.skipped = true;
         continue;
       }
+      let answered = false;
       for (const [name, path] of SITE_READS) {
-        if (cut || !alive()) {
+        if (cut || entry.timedOut || !alive()) {
           entry.missing.push(name);
           continue;
         }
         try {
           const { answer, serverTime } = await this.get(
-            `${encodeURIComponent(site.publicKey)}/${path}`,
+            `${encodeURIComponent(entry.site.publicKey)}/${path}`,
             credentials,
           );
+          answered = true;
           entry[name] = answer;
           // The time of the service when it gave these values (staleness of an inverter).
           entry.serverTime ??= serverTime;
@@ -216,14 +241,28 @@ export class AutarcoClient {
             throw err;
           }
           if (err.code === 'refused' || err.code === 'forbidden') {
+            answered = true;
             entry.denied = true;
             break;
           }
           entry.missing.push(name);
-          if (err.code === 'timeout' || err.code === 'unreachable') {
+          if (err.code === 'unreachable') {
+            // The service itself is out of reach: the rest of the read too.
             cut = true;
+          } else if (err.code === 'timeout') {
+            // Only this site ends here; two sites in a row without an answer
+            // end the read (its length stays bounded).
+            entry.timedOut = true;
+          } else {
+            answered = true;
           }
         }
+      }
+      if (entry.timedOut && !answered) {
+        timeoutsInRow += 1;
+        if (timeoutsInRow >= 2) cut = true;
+      } else {
+        timeoutsInRow = 0;
       }
     }
     return result;

@@ -103,11 +103,22 @@ export class AutarcoApp {
     this.kept = readState(store.load(), now(), { maxPause: PAUSE_MAX });
     /** The instant of the last request as written in /data (written at most once a minute). */
     this.savedAttemptAt = this.kept.lastAttemptAt;
+    const now0 = now();
+    const mono0 = monotonic();
     /**
      * After a restart of the container: the first read waits the interval
      * and the minute the last request may have come after the one written.
+     * Kept on the monotonic clock (the wall clock only dates /data): a wall
+     * clock set back afterwards never lengthens the wait.
      */
-    this.restartedAt = this.kept.lastAttemptAt > 0 ? this.kept.lastAttemptAt : 0;
+    this.restartMono =
+      this.kept.lastAttemptAt > 0 ? mono0 - Math.max(0, now0 - this.kept.lastAttemptAt) : undefined;
+    /** The end of a pause on the monotonic clock (its wall end only for /data), capped. */
+    this.pauseEndMono = this.kept.pause
+      ? mono0 + Math.min(Math.max(0, this.kept.pause.until - now0), PAUSE_MAX)
+      : 0;
+    /** Reads started in this process: the first site read turns with it. */
+    this.reads = 0;
     this.savedKey = undefined;
     this.config = normalizeConfig();
     /** The credentials of the last start (memory only): other ones may be tried at once. */
@@ -188,7 +199,7 @@ export class AutarcoApp {
           sites: {},
         });
         this.savedAttemptAt = 0;
-        this.restartedAt = 0;
+        this.restartMono = undefined;
         this.forgetPace();
         this.last = undefined;
         this.names.clear();
@@ -210,7 +221,7 @@ export class AutarcoApp {
           this.kept.refusal = null;
           changed = true;
         }
-        this.restartedAt = 0;
+        this.restartMono = undefined;
         this.forgetPace();
       }
     }
@@ -229,7 +240,16 @@ export class AutarcoApp {
     await this.updateStatus({ starting: true });
     // Always armed, whatever the first read gives: never a dead integration.
     this.timer = this.timers.setInterval(() => this.run(generation, () => this.tick()), TICK);
+    const late = this.busy;
     this.firstRun = this.run(generation, () => this.tick());
+    if (late) {
+      // A read of the previous generation still running: its result (a
+      // refusal, a pause, a success with the same credentials) is kept, and
+      // the status is set again for THIS generation once it ends.
+      this.firstRun = late
+        .catch(() => {})
+        .then(() => this.run(generation, () => this.updateStatus()));
+    }
   }
 
   forgetPace() {
@@ -431,11 +451,17 @@ export class AutarcoApp {
       at.push(now + this.lastAttemptMono + this.intervalMs() - mono);
     }
     if (this.retryAtMono > mono) at.push(now + this.retryAtMono - mono);
-    if (this.restartedAt > 0) {
-      at.push(this.restartedAt + ATTEMPT_SAVE_EVERY + this.intervalMs());
+    if (this.restartMono !== undefined) {
+      at.push(now + this.restartMono + ATTEMPT_SAVE_EVERY + this.intervalMs() - mono);
     }
-    if (this.kept.pause) at.push(this.kept.pause.until);
+    if (this.kept.pause) at.push(now + this.pauseLeft());
     return Math.max(...at);
+  }
+
+  /** What is left of a pause (ms, monotonic clock, never more than PAUSE_MAX); 0 without one. */
+  pauseLeft() {
+    if (!this.kept.pause) return 0;
+    return Math.min(Math.max(0, this.pauseEndMono - this.monotonic()), PAUSE_MAX);
   }
 
   due(options) {
@@ -466,7 +492,7 @@ export class AutarcoApp {
     const now = this.now();
     // Recorded first: neither a reconnection, a save nor a restart reads sooner.
     this.lastAttemptMono = this.monotonic();
-    this.restartedAt = 0;
+    this.restartMono = undefined;
     this.kept.lastAttemptAt = now;
     await this.saveState();
     let answers;
@@ -474,22 +500,28 @@ export class AutarcoApp {
       const mono = this.monotonic();
       answers = await this.client.readAll(
         { email, password },
-        { alive, skip: (siteId) => (this.denied.get(siteId)?.untilMono ?? 0) > mono },
+        {
+          alive,
+          skip: (siteId) => (this.denied.get(siteId)?.untilMono ?? 0) > mono,
+          start: this.reads++,
+        },
       );
     } catch (err) {
       await this.failed(err, { email, password, alive });
       return;
     }
+    const same = this.config.email === email && this.config.password === password;
     if (!alive()) {
-      // Late: an old configuration or a restart. Nothing published, no status.
+      // Late: an old configuration or a restart. Nothing published, no status
+      // (the new generation sets it). With the same credentials, the success
+      // still lifts a refusal, a pause and the failures.
+      if (same) {
+        this.clearErrors();
+        await this.saveState();
+      }
       return;
     }
-    this.failures = 0;
-    this.retryAtMono = 0;
-    this.lastError = undefined;
-    this.kept.pause = null;
-    // The marker of refused credentials goes with the first success.
-    this.kept.refusal = null;
+    this.clearErrors();
     this.last = this.digest(answers);
     this.valuesAt = this.monotonic();
     this.readAt = this.now();
@@ -537,14 +569,19 @@ export class AutarcoApp {
         // The power of an inverter silent for 2 h (the time of the service)
         // is not current: left out. Without a readable time, never "stale".
         const serverTime = entry.serverTime ?? answers.serverTime;
-        for (const inverter of inverters) {
-          if (
-            inverter.latest !== undefined &&
-            serverTime !== undefined &&
-            serverTime - inverter.latest > INVERTER_STALE
-          ) {
+        const dated =
+          serverTime === undefined ? [] : inverters.filter((i) => i.latest !== undefined);
+        for (const inverter of dated) {
+          if (serverTime - inverter.latest > INVERTER_STALE) {
             inverter.power = undefined;
           }
+        }
+        // The solar power of the site is the sum of its inverters (the answers
+        // of the library): when every inverter with a readable time is silent
+        // for 2 h, it is not a current value either. Never applied to the
+        // battery or the meter (they may talk while the inverters sleep).
+        if (dated.length > 0 && dated.every((i) => serverTime - i.latest > INVERTER_STALE)) {
+          delete values.pvPower;
         }
       }
       known[siteId] = {
@@ -558,6 +595,8 @@ export class AutarcoApp {
         values,
         inverters,
         missing: entry.missing.length > 0,
+        timedOut: entry.timedOut === true,
+        unread: entry.unread === true,
         denied: entry.denied || (entry.skipped && this.denied.has(siteId)),
       });
     }
@@ -566,6 +605,16 @@ export class AutarcoApp {
       if (!(id in known)) this.names.delete(id);
     }
     return { sites, more: answers.more };
+  }
+
+  /** A success: no failure, no pause, no refusal (its marker goes with it). */
+  clearErrors() {
+    this.failures = 0;
+    this.retryAtMono = 0;
+    this.lastError = undefined;
+    this.kept.pause = null;
+    this.pauseEndMono = 0;
+    this.kept.refusal = null;
   }
 
   async failed(err, { email, password, alive }) {
@@ -588,6 +637,7 @@ export class AutarcoApp {
       // A 403 is never shorter than its doubling (a Retry-After does not lift it sooner).
       const wanted = code === 'forbidden' ? Math.max(asked, doubled) : asked;
       const wait = Math.min(Math.max(wanted, PAUSE_MIN, this.intervalMs()), PAUSE_MAX);
+      this.pauseEndMono = mono + wait;
       this.kept.pause = {
         until: now + wait,
         count: Math.min(count, 32),
@@ -737,8 +787,8 @@ export class AutarcoApp {
       await this.setStatus(false, T.refused(refusal));
       return;
     }
-    if (pause && now < pause.until) {
-      await this.setStatus(false, T.paused(pause, pause.until - now));
+    if (pause && this.pauseLeft() > 0) {
+      await this.setStatus(false, T.paused(pause, this.pauseLeft()));
       return;
     }
     if (this.lastError) {
@@ -764,8 +814,17 @@ export class AutarcoApp {
       notes.push(T.notes.noDevice);
     }
     if (more) notes.push(T.notes.more(MAX_SITES));
-    const missing = sites.filter((s) => s.missing && !s.denied).map((s) => s.siteId);
-    if (missing.length > 0) notes.push(T.notes.missing(missing));
+    const ids = (filter) => sites.filter((s) => !s.denied && filter(s)).map((s) => s.siteId);
+    const unread = ids((s) => s.unread);
+    const timedOut = ids((s) => !s.unread && s.timedOut);
+    const errors = ids((s) => !s.unread && !s.timedOut && s.missing);
+    if (timedOut.length > 0) notes.push(T.notes.noAnswer(timedOut));
+    if (errors.length > 0) notes.push(T.notes.missing(errors));
+    if (unread.length > 0) notes.push(T.notes.unread(unread));
+    if (unread.length + timedOut.length + errors.length > 0) {
+      const whole = sites.some((s) => !s.missing && !s.denied);
+      notes.push(whole ? T.notes.othersOk : T.notes.noneWhole);
+    }
     const denied = sites.filter((s) => s.denied).map((s) => s.siteId);
     if (denied.length > 0) notes.push(T.notes.denied(denied));
     const held = this.heldList();
@@ -824,7 +883,9 @@ export class AutarcoApp {
     }
     await this.saveState();
     // Published at the next read (never a read sooner than the interval).
-    return T.accept.done(accepted, changed);
+    const taken = new Set(accepted.map((h) => h.id));
+    const stillHeld = this.heldList().some((h) => !taken.has(h.id));
+    return T.accept.done(accepted, changed, stillHeld);
   }
 
   /**
@@ -859,7 +920,7 @@ export class AutarcoApp {
     const fresh = this.isFresh();
     if (this.kept.refusal) {
       lines.push(T.test.failed({ code: 'refused', status: this.kept.refusal.status }));
-    } else if (this.kept.pause && this.now() < this.kept.pause.until) {
+    } else if (this.kept.pause && this.pauseLeft() > 0) {
       lines.push(T.test.failed(this.kept.pause));
     } else if (this.lastError) {
       lines.push(T.test.failed(this.lastError));

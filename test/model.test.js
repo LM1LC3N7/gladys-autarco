@@ -154,3 +154,37 @@ test('/data: no e-mail, no password; times capped; the refused mark only 8 bits'
   // 8 bits: one guess in 256 matches any mark, so the file confirms no password.
   assert.equal(refusedMark(salt, 'a@b.c', 'pw').length, 2);
 });
+
+test('a serial needs a digit: no word of the prototype becomes a device', () => {
+  const list = parseInverters(
+    {
+      inverters: JSON.parse(
+        '{"__proto__": {"power": 1}, "constructor": {"power": 2}, "prototype": {"power": 3}, "abcd": {"power": 4}, "SN-0042": {"power": 5}}',
+      ),
+    },
+    {},
+  );
+  assert.deepEqual(
+    list.map((i) => i.serial),
+    ['SN-0042'],
+  );
+});
+
+test('the meter group needs a grid value: the consumption of a site without meter is left out', () => {
+  // The answer of the library for a site without a meter (has_consumption_meter false):
+  // consumption_* repeat the production.
+  const solarOnly = parseSite({
+    kpisPower: kpisPower1(),
+    kpisEnergy: {
+      ...kpisEnergy1(),
+      consumption_today: 8,
+      consumption_month: 114,
+      consumption_to_date: 29176,
+    },
+  });
+  assert.deepEqual(solarOnly.groups, []);
+  assert.equal(solarOnly.values.consumptionTotal, undefined);
+  const withMeter = parseSite({ kpisPower: kpisPower2(), kpisEnergy: kpisEnergy2() });
+  assert.equal(withMeter.values.consumptionTotal, 3169);
+  assert.ok(withMeter.groups.includes('meter'));
+});

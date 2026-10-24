@@ -33,8 +33,10 @@ With a battery (the values appear only when Autarco gives them):
   they are plain signed sensors, never split into charge and discharge;
 - energy charged and discharged today and in total (kWh, plain sensors).
 
-With a meter: grid net import and export (W, signs as given), grid import and
-export totals (kWh), consumption (W, today, total). All plain sensors.
+With a meter (shown by a grid value; without one, Autarco repeats the
+production as consumption, which is then left out): grid net import and
+export (W, signs as given), grid import and export totals (kWh),
+consumption (W, today, total). All plain sensors.
 
 One device per **inverter**: power (W), total production (kWh, plain
 sensor), health, grid turned off (0/1). The power of an inverter whose last
@@ -104,17 +106,35 @@ guard:
 - **E-mail or password refused** (HTTP 401 of the account): the reads
   **stop**, the status says so, and **no new try is ever made by itself**
   (this stop is kept in `/data` across a restart). Check your credentials on
-  my.autarco.com, then save them again: new credentials are tried at once.
-  The **Test the connection** button also tries once (at the pace of the
-  reads); only a success lifts the stop. To recognise the refused credentials
-  after a restart, `/data` keeps only an 8-bit marker of them (it can confirm
-  no password), erased by the first successful read.
-- **HTTP 429** (too many requests), anywhere: the reads pause, from the delay
-  asked by Autarco (or 1 minute, doubled at each new one) up to 6 hours, kept
-  in `/data`. An **HTTP 5xx** or **403** of the account pauses the same way.
+  my.autarco.com and save the **corrected** credentials: new credentials are
+  tried at once. Saving unchanged credentials reads nothing; only the **Test
+  the connection** button tries them again (once per click, at the pace of
+  the reads), and only a success lifts the stop. To recognise the refused
+  credentials after a restart, `/data` keeps only an 8-bit marker of them (it
+  can confirm no password), erased by the first successful read.
+- **A password with accents** or other non-ASCII characters: the integration
+  sends it in UTF-8, while the library it comes from sends latin1; which one
+  Autarco expects is not confirmed. If such a password is refused while it
+  works on my.autarco.com, a password made of plain ASCII characters avoids
+  the doubt (and please tell us).
+- **HTTP 429** (too many requests), anywhere: the reads pause, for the delay
+  asked by Autarco, else 1 minute doubled at each new one, but never shorter
+  than the reading interval (at 300 s: 5, 5, 5, 8, 16... minutes), up to
+  6 hours, kept in `/data`. An **HTTP 5xx** or **403** of the account pauses
+  the same way.
 - An error of one installation (5xx, an odd answer) only leaves its values
-  out: the others are published. An installation that refuses access (401 or 403) while the account is accepted is left out, tried again later (the
-  interval doubled, up to once an hour); the status lists it.
+  out: the others are published. An installation that does not answer in
+  time ends there, and the read goes on with the next ones; only Autarco out
+  of reach, or two installations in a row without an answer, stop the rest
+  of the read. The first installation read changes at each read, so that
+  none is always left last. The status names the installations not read in
+  full, and says whether the others are up to date.
+- An installation that refuses access (401 or 403) while the account is
+  accepted is left out, tried again later (the interval doubled, up to once
+  an hour); the status lists it.
+- The solar power of an installation is not sent when all its inverters with
+  a known time have been silent for more than 2 hours (by the clock of the
+  service): it is not a current value.
 - Autarco unreachable: new try after the interval, doubled up to 30 minutes.
 
 ## Privacy

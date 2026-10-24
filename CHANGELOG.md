@@ -34,8 +34,13 @@ the notes of the version's GitHub Release.
   marker only), without any automatic new try; new credentials or the test
   button try again. HTTP 429 anywhere, and 5xx or 403 of the account, pause
   the reads from 1 minute to 6 hours, kept in `/data`; an error or a refusal
-  of one site only leaves that site out. Answers bounded, no redirect
-  followed, the credentials never logged.
+  of one site only leaves that site out; a site without an answer ends only
+  that site, and the first site read turns at each read. Pauses run on the
+  monotonic clock. Answers bounded, no redirect followed, the credentials
+  never logged.
+- The solar power of a site is left out when all its inverters are silent
+  for 2 hours; the consumption is kept only for a site with a meter (a grid
+  value).
 - "Test the connection" and "Accept the held index" buttons.
 - Documentation in English and French; `LICENSE` (Apache-2.0) and
   `THIRD_PARTY_NOTICES.md` (MIT notice of python-autarco), shipped in the

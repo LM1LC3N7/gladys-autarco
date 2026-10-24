@@ -10,9 +10,9 @@ import { AutarcoClient } from '../src/autarco/client.js';
 import { ACTIONS, PAUSE_MIN } from '../src/constants.js';
 import { buildInverterDevice, buildSiteDevice } from '../src/devices.js';
 import { createMemoryStore } from '../src/store.js';
-import { createFetch } from './helpers/fakeFetch.js';
+import { createFetch, timeoutError } from './helpers/fakeFetch.js';
 import { createFakeTimers } from './helpers/fakeTimers.js';
-import { EMAIL, NOW, PASSWORD, autarco, json, kpisEnergy1 } from './fixtures/autarco.js';
+import { EMAIL, NOW, PASSWORD, account, autarco, json, kpisEnergy1 } from './fixtures/autarco.js';
 
 const SELECTOR = 'autarco';
 const SITE1 = `ext:${SELECTOR}:site:1000`;
@@ -68,7 +68,7 @@ async function setup({
     gladys,
     logger,
     now: () => clock.now,
-    monotonic: () => clock.now,
+    monotonic: () => clock.mono ?? clock.now,
     timers,
     store,
     client: new AutarcoClient({ fetchImpl: fake.fetch, now: () => clock.now }),
@@ -80,6 +80,7 @@ async function setup({
   /** `ms` later, the timer looks whether a read is due. */
   const tick = async (ms = POLL) => {
     clock.now += ms;
+    if (clock.mono !== undefined) clock.mono += ms;
     await timers.runIntervals();
     await app.idle();
   };
@@ -327,6 +328,7 @@ test('the index: a jump is held, never confirmed by repetition, accepted in two 
   clock.now += 10 * SECOND;
   const second = (await gladys.fake.action(ACTIONS.ACCEPT_HELD)).data.message;
   assert.match(second.fr, /Accepté : index de production solaire du site 1000 99999 kWh/);
+  assert.doesNotMatch(second.fr, /Une autre valeur reste retenue/, 'nothing left held');
   await tick();
   assert.equal(last(gladys, `${SITE1}:pv_energy`), 99999);
 });
@@ -356,17 +358,36 @@ test('the index: never 0, a drop held, a normal rise of whole kWh goes through',
   );
 });
 
-test('an inverter silent for 2 hours (time of the service): its power is not sent', async () => {
-  const later = NOW + 3 * HOUR;
+test('inverters silent for 2 hours (time of the service): no inverter power, no solar power', async () => {
+  const date = { at: NOW + 3 * HOUR };
   const routes = autarco();
   const original = routes['/api/site/site_key_1/kpis/power'];
   routes['/api/site/site_key_1/kpis/power'] = async () =>
-    json(await (await original()).json(), { date: later });
-  const { app, gladys } = await setup({ routes, devices: created() });
+    json(await (await original()).json(), { date: date.at });
+  const { app, gladys, tick } = await setup({ routes, devices: created() });
+  const published = [];
+  const publish = gladys.publishChangedStates.bind(gladys);
+  gladys.publishChangedStates = (states, options) => {
+    published.push(...states);
+    return publish(states, options);
+  };
   await app.start(CONFIG);
   await app.idle();
+  const pv = () => published.filter((s) => s.device_feature_external_id === `${SITE1}:pv_power`);
   assert.equal(last(gladys, `${INV1}:power`), undefined);
   assert.equal(last(gladys, `${INV1}:energy_total`), 29176);
+  assert.equal(pv().length, 0, 'the sum of silent inverters is not current');
+  assert.equal(last(gladys, `${SITE1}:pv_energy`), 29176, 'the index still goes');
+  assert.equal(last(gladys, `${SITE2}:pv_power`), 961, 'the other site is fresh');
+  const test = (await gladys.fake.action(ACTIONS.TEST)).data.message;
+  assert.doesNotMatch(test.en, /site 1000 \(solar/);
+  // An inverter talking again: the solar power is back.
+  date.at = NOW;
+  await tick();
+  assert.deepEqual(
+    pv().map((s) => s.state),
+    [3323],
+  );
 });
 
 test('a device created later: its values at once, its index state reset', async () => {
@@ -427,4 +448,132 @@ test('no secret anywhere: logs, statuses, /data, test answers', async () => {
   ]) {
     assert.ok(!everything.includes(secret), secret);
   }
+});
+
+/** A route held until `release(response)`; the call has started when `started` resolves. */
+function gate() {
+  let release;
+  let started;
+  const begun = new Promise((resolve) => {
+    started = resolve;
+  });
+  const done = new Promise((resolve) => {
+    release = resolve;
+  });
+  return {
+    begun,
+    release,
+    handler: async () => {
+      started();
+      return done;
+    },
+  };
+}
+
+/** A read held at the account, a reconnection with the same credentials, then the answer. */
+async function lateRead(answer, { store, first = autarco()['/api/site/'] } = {}) {
+  const routes = autarco({ '/api/site/': () => first() });
+  const ctx = await setup({ routes, store });
+  await ctx.app.start(CONFIG);
+  await ctx.app.idle();
+  const held = gate();
+  routes['/api/site/'] = held.handler;
+  ctx.clock.now += POLL;
+  const reading = ctx.app.run(ctx.app.generation, () => ctx.app.tick({ manual: true }));
+  await held.begun;
+  // Gladys reconnects meanwhile (or the form is saved with the same credentials).
+  await ctx.app.start(CONFIG);
+  held.release(answer());
+  await reading;
+  routes['/api/site/'] = autarco()['/api/site/'];
+  await ctx.app.idle();
+  return ctx;
+}
+
+test('a read ending in 401 after a reconnection: the refusal is kept AND shown', async () => {
+  const { gladys, store, fake, tick } = await lateRead(() => json({}, { status: 401 }));
+  assert.ok(store.data.refusal);
+  assert.equal(status(gladys).connected, false);
+  assert.match(status(gladys).message.fr, /refuse l’adresse e-mail ou le mot de passe/);
+  const before = fake.calls.length;
+  await tick(6 * HOUR);
+  assert.equal(fake.calls.length, before, 'still stopped');
+  assert.match(status(gladys).message.fr, /refuse/);
+});
+
+test('a read ending in 429 after a reconnection: the pause is kept AND shown', async () => {
+  const { gladys, store } = await lateRead(() =>
+    json({}, { status: 429, headers: { 'retry-after': '3600' } }),
+  );
+  assert.equal(store.data.pause.code, 'rate_limited');
+  assert.equal(status(gladys).connected, false);
+  assert.match(status(gladys).message.fr, /lectures en pause, nouvel essai dans 60 min/);
+});
+
+test('a late success with the same credentials lifts a refusal and a pause', async () => {
+  const { gladys, store, fake, tick } = await lateRead(() => json(account()), {
+    first: () => json({}, { status: 401 }),
+  });
+  assert.equal(store.data.refusal, null);
+  assert.equal(store.data.pause, null);
+  assert.doesNotMatch(status(gladys).message.fr, /refuse/);
+  const before = fake.calls.length;
+  await tick(POLL);
+  assert.ok(fake.calls.length > before, 'the reads go on at their pace');
+  assert.equal(status(gladys).connected, true);
+});
+
+test('a site that never answers: the other site (index included) is read at every read', async () => {
+  const routes = autarco();
+  routes['/api/site/site_key_1/kpis/power'] = () => {
+    throw timeoutError();
+  };
+  const { app, gladys, tick, fake } = await setup({ routes, devices: created() });
+  await app.start(CONFIG);
+  await app.idle();
+  for (let i = 0; i < 4; i += 1) {
+    const before = fake.calls.filter((c) => c.path.includes('site_key_2')).length;
+    if (i > 0) await tick();
+    assert.equal(
+      fake.calls.filter((c) => c.path.includes('site_key_2')).length,
+      i === 0 ? 3 : before + 3,
+    );
+  }
+  assert.equal(last(gladys, `${SITE2}:pv_energy`), 4008);
+  assert.equal(last(gladys, `${SITE2}:battery_level`), 71);
+  assert.equal(last(gladys, `${SITE1}:pv_energy`), undefined, 'site 1 ends at its first path');
+  assert.match(status(gladys).message.fr, /Pas de réponse à temps cette fois : site 1000/);
+  assert.match(status(gladys).message.fr, /Les autres sites sont à jour/);
+});
+
+test('a pause runs on the monotonic clock: a wall clock set back never lengthens it', async () => {
+  const clock = { now: NOW, mono: 1_000_000 };
+  const routes = autarco({
+    '/api/site/': () => json({}, { status: 429, headers: { 'retry-after': String(6 * 3600) } }),
+  });
+  const { app, gladys, fake, tick } = await setup({ routes, clock });
+  await app.start(CONFIG);
+  await app.idle();
+  routes['/api/site/'] = autarco()['/api/site/'];
+  clock.now -= 2 * 24 * HOUR; // NTP sets the wall clock back two days
+  await tick(5 * HOUR);
+  assert.equal(accountReads(fake), 1);
+  assert.match(status(gladys).message.fr, /pause/);
+  await tick(HOUR + MINUTE);
+  assert.equal(accountReads(fake), 2, 'read 6 h (monotonic) after the 429');
+});
+
+test('the wait after a restart runs on the monotonic clock too', async () => {
+  const store = createMemoryStore();
+  const clock = { now: NOW, mono: 5_000 };
+  const first = await setup({ store, clock });
+  await first.app.start(CONFIG);
+  await first.app.idle();
+  await first.app.stop();
+  const second = await setup({ store, clock });
+  await second.app.start(CONFIG);
+  await second.app.idle();
+  clock.now -= 2 * 24 * HOUR;
+  await second.tick(POLL + MINUTE);
+  assert.equal(accountReads(second.fake), 1);
 });

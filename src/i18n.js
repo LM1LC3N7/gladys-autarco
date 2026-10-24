@@ -97,8 +97,8 @@ export const T = {
     fr: `Autarco : prochaine lecture à ${clock(at)}.`,
   }),
   refused: (refusal) => ({
-    en: `Autarco refuses the e-mail address or the password (HTTP ${refusal.status}): reads stopped, no new try by itself. Check them on my.autarco.com, then save them again in the configuration (or click "Test the connection" once).`,
-    fr: `Autarco refuse l’adresse e-mail ou le mot de passe (HTTP ${refusal.status}) : lectures arrêtées, aucun nouvel essai automatique. Vérifiez-les sur my.autarco.com, puis enregistrez-les de nouveau dans la configuration (ou cliquez une fois sur « Tester la connexion »).`,
+    en: `Autarco refuses the e-mail address or the password (HTTP ${refusal.status}): reads stopped, no new try by itself. Check them on my.autarco.com and save the corrected credentials; unchanged credentials are tried again only by the "Test the connection" button, at the pace of the reads. A password with accents or other non-ASCII characters may be the cause (see the guide).`,
+    fr: `Autarco refuse l’adresse e-mail ou le mot de passe (HTTP ${refusal.status}) : lectures arrêtées, aucun nouvel essai automatique. Vérifiez-les sur my.autarco.com et enregistrez les identifiants corrigés ; des identifiants inchangés ne sont réessayés que par le bouton « Tester la connexion », au rythme des lectures. Un mot de passe avec des accents ou d’autres caractères non ASCII peut en être la cause (voir le guide).`,
   }),
   failing: (err, wait) => ({
     en: `Autarco could not be read (${reason(err).en}): new try in ${delay(wait).en}.`,
@@ -130,9 +130,25 @@ export const T = {
       fr: `Le compte liste d’autres installations : seules les ${max} premières sont lues.`,
     }),
     missing: (sites) => ({
-      en: `Partly read this time (error of the service): site ${list(sites)}; the other values are up to date.`,
-      fr: `Lu en partie cette fois (erreur du service) : site ${list(sites)} ; les autres valeurs sont à jour.`,
+      en: `Partly read this time (error of the service): site ${list(sites)}.`,
+      fr: `Lu en partie cette fois (erreur du service) : site ${list(sites)}.`,
     }),
+    noAnswer: (sites) => ({
+      en: `No answer in time this time: site ${list(sites)}.`,
+      fr: `Pas de réponse à temps cette fois : site ${list(sites)}.`,
+    }),
+    unread: (sites) => ({
+      en: `Not read this time (Autarco out of reach, or two sites in a row without an answer): site ${list(sites)}.`,
+      fr: `Non lu cette fois (Autarco injoignable, ou deux sites de suite sans réponse) : site ${list(sites)}.`,
+    }),
+    othersOk: {
+      en: 'The other sites are up to date.',
+      fr: 'Les autres sites sont à jour.',
+    },
+    noneWhole: {
+      en: 'No site was read in full this time.',
+      fr: 'Aucun site n’a été lu en entier cette fois.',
+    },
     denied: (sites) => ({
       en: `Access refused to site ${list(sites)} (the account itself is accepted): not read, tried again later, up to every hour.`,
       fr: `Accès refusé au site ${list(sites)} (le compte lui-même est accepté) : non lu, nouvel essai plus tard, jusqu’à une fois par heure.`,
@@ -173,7 +189,7 @@ export const T = {
           fr: `Cliquez de nouveau sur « Accepter l’index retenu », après quelques secondes et dans les ${delay(within).fr}, pour les accepter ; n’acceptez que si cette énergie est réelle.`,
         },
       ]),
-    done: (accepted, changed) =>
+    done: (accepted, changed, stillHeld = false) =>
       both([
         ...accepted.map((h) => ({
           en: `Accepted: ${INDEX[h.name](h.site).en} ${kwh(h.to)} kWh, sent at the next read.`,
@@ -187,7 +203,9 @@ export const T = {
               },
             ]
           : []),
-        { en: 'A different value stays held.', fr: 'Une autre valeur reste retenue.' },
+        ...(stillHeld
+          ? [{ en: 'A different value stays held.', fr: 'Une autre valeur reste retenue.' }]
+          : []),
       ]),
   },
   test: {

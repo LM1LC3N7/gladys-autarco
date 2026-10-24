@@ -78,7 +78,8 @@ test/                             node --test, against the SDK's fake Gladys and
   button, Discovery, connection, save, restart: `/data` keeps the last
   request, written at most once a minute and at a clean stop). A read of an
   old generation publishes nothing and sets no status.
-- **Pauses**: 429 anywhere, 5xx or 403 of the account: 1 min to 6 h, kept in
+- **Pauses**: 429 anywhere, 5xx or 403 of the account: 1 min (never less than
+  the interval) to 6 h, measured on the monotonic clock in memory, kept in
   `/data` (end capped when read back); a reconnection clears neither a pause
   nor a refusal.
 - **Energy monitoring**: `pv_energy` (`energy-production-sensor` / `index`,

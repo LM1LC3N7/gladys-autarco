@@ -34,9 +34,11 @@ Avec une batterie (les valeurs n'apparaissent que si Autarco les donne) :
   signés, jamais séparés en charge et décharge ;
 - énergie chargée et déchargée du jour et totale (kWh, simples capteurs).
 
-Avec un compteur : import net et export du réseau (W, signes tels que
-donnés), totaux d'import et d'export (kWh), consommation (W, du jour,
-totale). Tous de simples capteurs.
+Avec un compteur (prouvé par une valeur du réseau ; sans compteur, Autarco
+répète la production comme consommation, alors laissée de côté) : import
+net et export du réseau (W, signes tels que donnés), totaux d'import et
+d'export (kWh), consommation (W, du jour, totale). Tous de simples
+capteurs.
 
 Un appareil par **onduleur** : puissance (W), production totale (kWh, simple
 capteur), santé, réseau coupé (0/1). La puissance d'un onduleur dont le
@@ -114,21 +116,37 @@ installation passe par une garde :
 - **E-mail ou mot de passe refusé** (HTTP 401 du compte) : les lectures
   **s'arrêtent**, l'état le dit, et **aucun nouvel essai n'est fait
   automatiquement** (cet arrêt est gardé dans `/data` après un redémarrage).
-  Vérifiez vos identifiants sur my.autarco.com, puis enregistrez-les de
-  nouveau : de nouveaux identifiants sont essayés tout de suite. Le bouton
-  **Tester la connexion** fait aussi un essai (au rythme des lectures) ;
-  seul un succès lève l'arrêt. Pour reconnaître les identifiants refusés après
-  un redémarrage, `/data` n'en garde qu'un marqueur de 8 bits (il ne peut
-  confirmer aucun mot de passe), effacé à la première lecture réussie.
+  Vérifiez vos identifiants sur my.autarco.com et enregistrez les
+  identifiants **corrigés** : de nouveaux identifiants sont essayés tout de
+  suite. Réenregistrer des identifiants inchangés ne lit rien ; seul le
+  bouton **Tester la connexion** les réessaie (une fois par clic, au rythme
+  des lectures), et seul un succès lève l'arrêt. Pour reconnaître les
+  identifiants refusés après un redémarrage, `/data` n'en garde qu'un
+  marqueur de 8 bits (il ne peut confirmer aucun mot de passe), effacé à la
+  première lecture réussie.
+- **Un mot de passe avec des accents** ou d'autres caractères non ASCII :
+  l'intégration l'envoie en UTF-8, alors que la bibliothèque d'origine
+  l'envoie en latin1 ; on ne sait pas encore lequel Autarco attend. Si un tel
+  mot de passe est refusé alors qu'il marche sur my.autarco.com, un mot de
+  passe en caractères ASCII simples lève le doute (et dites-le-nous).
 - **HTTP 429** (trop de requêtes), où que ce soit : les lectures se mettent
-  en pause, du délai demandé par Autarco (ou 1 minute, doublée à chaque
-  nouvelle fois) jusqu'à 6 heures, gardée dans `/data`. Un **HTTP 5xx** ou
-  **403** du compte met en pause de la même façon.
+  en pause, du délai demandé par Autarco, sinon 1 minute doublée à chaque
+  nouvelle fois, mais jamais moins que l'intervalle de lecture (à 300 s : 5,
+  5, 5, 8, 16... minutes), jusqu'à 6 heures, gardée dans `/data`. Un
+  **HTTP 5xx** ou **403** du compte met en pause de la même façon.
 - Une erreur d'une installation (5xx, réponse étrange) ne laisse de côté que
-  ses valeurs : les autres sont publiées. Une installation qui refuse l'accès
-  (401 ou 403) alors que le compte est accepté est laissée de côté, réessayée
-  plus tard (l'intervalle doublé, jusqu'à une fois par heure) ; l'état la
-  cite.
+  ses valeurs : les autres sont publiées. Une installation qui ne répond pas
+  à temps s'arrête là, et la lecture continue avec les suivantes ; seuls
+  Autarco injoignable, ou deux installations de suite sans réponse, arrêtent
+  le reste de la lecture. La première installation lue change à chaque
+  lecture, pour qu'aucune ne reste toujours la dernière. L'état cite les
+  installations non lues en entier, et dit si les autres sont à jour.
+- Une installation qui refuse l'accès (401 ou 403) alors que le compte est
+  accepté est laissée de côté, réessayée plus tard (l'intervalle doublé,
+  jusqu'à une fois par heure) ; l'état la cite.
+- La puissance solaire d'une installation n'est pas envoyée quand tous ses
+  onduleurs à l'heure connue se taisent depuis plus de 2 heures (selon
+  l'horloge du service) : ce n'est pas une valeur actuelle.
 - Autarco injoignable : nouvel essai après l'intervalle, doublé jusqu'à
   30 minutes.
 
