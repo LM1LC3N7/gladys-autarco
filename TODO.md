@@ -131,3 +131,8 @@
      production there).
   8. Texts: the refusal status, the acceptance answer, the manifest and the
      pause durations of the docs.
+- **Real-clock check**: the wait of a refused site is counted from the
+  START of the read that met the refusal (one clock reading per read, also
+  used to skip the denied sites), not from its end: at 120 s a refused site
+  is read again at 240 s, not 360 s. The app tests run with a latency on
+  every request (the clock moves during a read).

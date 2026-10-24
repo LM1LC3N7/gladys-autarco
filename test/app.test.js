@@ -58,8 +58,16 @@ async function setup({
   devices = [],
   store = createMemoryStore(),
   clock = { now: NOW },
+  latency = 300,
 } = {}) {
+  // Every request takes `latency` ms on both clocks: a read is never instant.
   const fake = createFetch(routes);
+  const network = fake.fetch;
+  fake.fetch = async (...args) => {
+    clock.now += latency;
+    if (clock.mono !== undefined) clock.mono += latency;
+    return network(...args);
+  };
   const gladys = createFakeGladys({ selector: SELECTOR, config, devices });
   await gladys.connect();
   const timers = createFakeTimers();
@@ -252,7 +260,7 @@ test('429: a pause from Retry-After, kept in /data across a restart', async () =
   await first.app.start(CONFIG);
   await first.app.idle();
   assert.equal(store.data.pause.code, 'rate_limited');
-  assert.equal(store.data.pause.until, NOW + HOUR);
+  assert.equal(store.data.pause.until, NOW + 300 + HOUR, 'from the answer (300 ms of latency)');
   assert.match(status(first.gladys).message.fr, /lectures en pause/);
   await first.app.stop();
   const second = await setup({ store, clock, routes: autarco() });
@@ -576,4 +584,37 @@ test('the wait after a restart runs on the monotonic clock too', async () => {
   clock.now -= 2 * 24 * HOUR;
   await second.tick(POLL + MINUTE);
   assert.equal(accountReads(second.fake), 1);
+});
+
+test('a refused site is read again 2 intervals after the START of its read (not one more)', async () => {
+  const clock = { now: NOW, mono: 0 };
+  const asked = [];
+  // The refusal of site 2 is slow (20 s): its wait must not start at the end of the read.
+  const routes = autarco({
+    '/api/site/site_key_2/kpis/power': () => {
+      asked.push(clock.mono);
+      clock.now += 20_000;
+      clock.mono += 20_000;
+      return json({}, { status: 403 });
+    },
+  });
+  const config = { ...CONFIG, poll_interval: 120 };
+  const { app, timers } = await setup({ routes, clock, config, latency: 300 });
+  await app.start(config);
+  await app.idle();
+  assert.equal(asked.length, 1);
+  const start = 0;
+  // The timer of the integration looks every 15 s.
+  while (clock.mono < 400_000 && asked.length < 2) {
+    clock.now += 15_000;
+    clock.mono += 15_000;
+    await timers.runIntervals();
+    await app.idle();
+  }
+  // Interval 120 s, first refusal: 2 x 120 s from the start of the read (at 0),
+  // so the first read starting from 240 s asks it again (one look of 15 s at most).
+  assert.ok(
+    asked[1] >= start + 240_000 && asked[1] < start + 240_000 + 15_000 + 1_000,
+    `asked again at ${asked[1]} ms`,
+  );
 });

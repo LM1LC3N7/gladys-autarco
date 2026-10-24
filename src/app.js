@@ -491,18 +491,20 @@ export class AutarcoApp {
     const alive = () => generation === this.generation;
     const now = this.now();
     // Recorded first: neither a reconnection, a save nor a restart reads sooner.
-    this.lastAttemptMono = this.monotonic();
+    const startedMono = this.monotonic();
+    this.lastAttemptMono = startedMono;
     this.restartMono = undefined;
     this.kept.lastAttemptAt = now;
     await this.saveState();
     let answers;
     try {
-      const mono = this.monotonic();
+      // One clock reading for the whole read: the start decides which denied
+      // site waits, and its wait is counted from that same start (digest).
       answers = await this.client.readAll(
         { email, password },
         {
           alive,
-          skip: (siteId) => (this.denied.get(siteId)?.untilMono ?? 0) > mono,
+          skip: (siteId) => (this.denied.get(siteId)?.untilMono ?? 0) > startedMono,
           start: this.reads++,
         },
       );
@@ -522,7 +524,7 @@ export class AutarcoApp {
       return;
     }
     this.clearErrors();
-    this.last = this.digest(answers);
+    this.last = this.digest(answers, startedMono);
     this.valuesAt = this.monotonic();
     this.readAt = this.now();
     const prepared = this.prepare(this.last);
@@ -542,8 +544,7 @@ export class AutarcoApp {
    * denied, skipped }], more }`; the sites known (Discovery) updated: groups
    * and inverters only grow, a site gone from the account leaves the list.
    */
-  digest(answers) {
-    const mono = this.monotonic();
+  digest(answers, startedMono = this.monotonic()) {
     const sites = [];
     const known = {};
     for (const entry of answers.sites) {
@@ -557,7 +558,7 @@ export class AutarcoApp {
           this.intervalMs() * 2 ** count,
           Math.max(DENIED_MAX, this.intervalMs()),
         );
-        this.denied.set(siteId, { count: Math.min(count, 32), untilMono: mono + wait });
+        this.denied.set(siteId, { count: Math.min(count, 32), untilMono: startedMono + wait });
         this.logger.warn(`Autarco site ${siteId}: access refused, not read`);
       } else if (!entry.skipped) {
         this.denied.delete(siteId);
