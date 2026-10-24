@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
 ### Added
 
 - Reading of an Autarco account through the public API of my.autarco.com
@@ -45,3 +47,6 @@ the notes of the version's GitHub Release.
 - Documentation in English and French; `LICENSE` (Apache-2.0) and
   `THIRD_PARTY_NOTICES.md` (MIT notice of python-autarco), shipped in the
   image.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-autarco/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-autarco/releases/tag/v0.1.1
