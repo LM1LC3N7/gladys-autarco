@@ -1,67 +1,141 @@
-# Template de démonstration
+# Autarco
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Intégration **non officielle**, sans lien avec Autarco. Elle lit les
+installations de votre compte **Autarco** (onduleurs solaires, et batteries
+s'il y en a) par l'API publique de my.autarco.com, avec l'adresse e-mail et
+le mot de passe du compte. Internet est nécessaire.
+
+**Jamais testé avec un vrai appareil** : l'intégration a été écrite à partir
+de la bibliothèque [python-autarco](https://github.com/klaasnicolaas/python-autarco)
+(celle qu'utilise Home Assistant) et de ses réponses de test, sans compte
+Autarco sous la main. Vos retours sont les bienvenus.
+
+## Lecture seule
+
+L'intégration **ne fait que lire** (requêtes GET de l'API publique). Elle ne
+change rien sur votre installation ni dans votre compte.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil par **installation** (site) du compte, à son nom :
+
+- puissance solaire (W) et **l'index de production solaire** (la production
+  totale de l'installation, en kWh), pour le suivi énergétique de Gladys, avec
+  sa production par demi-heure calculée par Gladys ;
+- production du jour et du mois (kWh, simples capteurs, jamais comptés) ;
+- santé de l'installation (1 = OK, 0 = un problème signalé par Autarco).
+
+Avec une batterie (les valeurs n'apparaissent que si Autarco les donne) :
+
+- niveau de charge (%) ;
+- puissance de la batterie et puissance de charge nette (W), **telles que
+  données par Autarco** : leur signe (charge ou décharge) n'a pas été
+  confirmé sur une vraie installation, ce sont donc de simples capteurs
+  signés, jamais séparés en charge et décharge ;
+- énergie chargée et déchargée du jour et totale (kWh, simples capteurs).
+
+Avec un compteur : import net et export du réseau (W, signes tels que
+donnés), totaux d'import et d'export (kWh), consommation (W, du jour,
+totale). Tous de simples capteurs.
+
+Un appareil par **onduleur** : puissance (W), production totale (kWh, simple
+capteur), santé, réseau coupé (0/1). La puissance d'un onduleur dont le
+dernier message date de plus de 2 heures (selon l'horloge du service) n'est
+pas envoyée.
+
+### Pas de double comptage
+
+Seule la **production solaire totale** de chaque installation alimente le
+suivi énergétique de Gladys, comme index. Les compteurs du jour et du mois,
+l'import du réseau (le compteur principal de votre logement, Linky..., le
+compte déjà), l'injection et les compteurs de la batterie sont de **simples
+capteurs** : Gladys ne les compte ni ne les facture jamais, et l'intégration
+n'envoie jamais de consommation journalière. Si une autre intégration envoie
+déjà la même production solaire à Gladys, ne créez qu'un seul des deux index
+de production.
+
+L'API donne des kWh entiers : l'index monte par pas de 1 kWh.
+
+## Prérequis
+
+- Gladys 5.2.0 ou plus récent, avec un accès à Internet.
+- Un compte Autarco sur my.autarco.com (celui de l'application Autarco).
 
 ## Configuration
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+1. Installez l'intégration depuis le store de Gladys.
+2. **Adresse e-mail** et **Mot de passe** de votre compte Autarco. Le mot de
+   passe est gardé par Gladys dans sa base, jamais réaffiché, envoyé
+   seulement à my.autarco.com (HTTPS, dans l'en-tête de ses requêtes), jamais
+   journalisé.
+3. **Intervalle de lecture** : 300 s par défaut (le rythme auquel le portail
+   se met à jour), de 120 à 3600 s. Chaque lecture fait une requête pour le
+   compte, puis trois par installation.
+4. Après la première lecture, créez les appareils depuis l'onglet
+   **Découverte**.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+Le bouton **Tester la connexion** lit le compte une fois si l'intervalle est
+écoulé ; sinon il affiche la dernière lecture et l'heure de la prochaine
+possible.
 
-## Actions
+Seules les 30 premières installations du compte sont lues (la première page
+de l'API) ; l'état le signale s'il y en a d'autres.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+## Rythme des lectures
 
-## Scènes
+Rien ne lit le compte plus vite que l'intervalle : ni le bouton de test, ni
+l'onglet Découverte, ni une reconnexion à Gladys, ni l'enregistrement d'une
+configuration inchangée, ni un redémarrage du conteneur (l'heure de la
+dernière lecture est gardée dans `/data`, écrite au plus une fois par minute
+et à l'arrêt propre : après un redémarrage, la première lecture attend
+l'intervalle plus une minute). De nouveaux identifiants sont essayés tout de
+suite.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+## Index retenu
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+Gladys compte chaque hausse d'un index en entier. Pour qu'aucune énergie
+fictive ne soit jamais comptée, l'index de production solaire de chaque
+installation passe par une garde :
 
-## Tableau de bord
+- une valeur 0 n'est jamais envoyée ;
+- une baisse, ou une hausse plus rapide que 50 kW en moyenne (plus 1,5 kWh),
+  est **retenue** : la dernière valeur acceptée est renvoyée, et l'état de
+  l'intégration l'affiche. Ni le temps ni la répétition ne la confirment ;
+  une baisse qui remonte est reprise dès qu'elle dépasse la dernière valeur
+  acceptée ;
+- si elle est juste, cliquez **deux fois** sur **Accepter l'index retenu** :
+  le premier clic liste ce qui est retenu et n'accepte rien, le second, de
+  3 secondes à 5 minutes plus tard, accepte exactement ce qui a été listé (un
+  saut est alors compté d'un coup, une baisse ne compte rien). Enregistrer la
+  configuration n'accepte rien.
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+## Erreurs
 
-## Dépannage
+- **E-mail ou mot de passe refusé** (HTTP 401 du compte) : les lectures
+  **s'arrêtent**, l'état le dit, et **aucun nouvel essai n'est fait
+  automatiquement** (cet arrêt est gardé dans `/data` après un redémarrage).
+  Vérifiez vos identifiants sur my.autarco.com, puis enregistrez-les de
+  nouveau : de nouveaux identifiants sont essayés tout de suite. Le bouton
+  **Tester la connexion** fait aussi un essai (au rythme des lectures) ;
+  seul un succès lève l'arrêt. Pour reconnaître les identifiants refusés après
+  un redémarrage, `/data` n'en garde qu'un marqueur de 8 bits (il ne peut
+  confirmer aucun mot de passe), effacé à la première lecture réussie.
+- **HTTP 429** (trop de requêtes), où que ce soit : les lectures se mettent
+  en pause, du délai demandé par Autarco (ou 1 minute, doublée à chaque
+  nouvelle fois) jusqu'à 6 heures, gardée dans `/data`. Un **HTTP 5xx** ou
+  **403** du compte met en pause de la même façon.
+- Une erreur d'une installation (5xx, réponse étrange) ne laisse de côté que
+  ses valeurs : les autres sont publiées. Une installation qui refuse l'accès
+  (401 ou 403) alors que le compte est accepté est laissée de côté, réessayée
+  plus tard (l'intervalle doublé, jusqu'à une fois par heure) ; l'état la
+  cite.
+- Autarco injoignable : nouvel essai après l'intervalle, doublé jusqu'à
+  30 minutes.
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+## Confidentialité
+
+L'intégration ne parle qu'à my.autarco.com, en HTTPS, et ne suit aucune
+redirection : vos identifiants ne vont jamais ailleurs. Ni l'adresse e-mail ni
+le mot de passe ne sont jamais écrits dans les journaux, dans l'état ou dans
+`/data` (le compte n'y est gardé que sous forme d'empreinte salée). Les noms
+des installations ne sont gardés qu'en mémoire.

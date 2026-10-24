@@ -1,177 +1,90 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Autarco",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Unofficial: Autarco solar inverters and batteries: production, power, battery, read-only.",
+    "fr": "Non officiel : onduleurs et batteries Autarco : production, puissance, batterie, lecture seule."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
-  "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-autarco:0.1.0",
+  "gladys_version": ">=5.2.0",
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-autarco/main/cover.png",
+  "categories": ["energy"],
+  "transports": ["cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": { "en": "Autarco", "fr": "Autarco" },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Unofficial connector, not affiliated with Autarco. It reads the installations of your Autarco account through the public API of my.autarco.com (Internet needed), every 5 minutes by default: solar power, production of the day, of the month and in total, each inverter, and with a battery or a meter its state of charge, powers and counters. The total production of each installation becomes its solar production index for the Gladys energy monitoring. Read-only: it never changes anything on your installation. Never tested with a real device.",
+        "fr": "Connecteur non officiel, sans lien avec Autarco. Il lit les installations de votre compte Autarco par l'API publique de my.autarco.com (Internet nécessaire), toutes les 5 minutes par défaut : puissance solaire, production du jour, du mois et totale, chaque onduleur, et avec une batterie ou un compteur son niveau de charge, ses puissances et ses compteurs. La production totale de chaque installation devient son index de production solaire pour le suivi énergétique de Gladys. Lecture seule : il ne change jamais rien sur votre installation. Jamais testé avec un vrai appareil."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-autarco/blob/main/docs/fr.md",
+          "label": { "en": "Guide (French)", "fr": "Guide (français)" }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-autarco/blob/main/docs/en.md",
+          "label": { "en": "Guide (English)", "fr": "Guide (anglais)" }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
+      "key": "email",
+      "type": "string",
       "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "label": { "en": "E-mail address", "fr": "Adresse e-mail" },
+      "description": {
+        "en": "The e-mail address you sign in with on my.autarco.com.",
+        "fr": "L'adresse e-mail de votre connexion à my.autarco.com."
+      },
+      "placeholder": { "en": "e.g. name@example.com", "fr": "ex. nom@exemple.fr" }
     },
     {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
+      "key": "password",
+      "type": "secret",
       "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
-      "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "label": { "en": "Password", "fr": "Mot de passe" },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
-      },
+        "en": "The password of your Autarco account. Kept by Gladys in its database, never shown again; sent only to my.autarco.com (HTTPS), in the header of its read requests, never logged.",
+        "fr": "Le mot de passe de votre compte Autarco. Gardé par Gladys dans sa base, jamais réaffiché ; envoyé seulement à my.autarco.com (HTTPS), dans l'en-tête de ses requêtes de lecture, jamais journalisé."
+      }
+    },
+    {
+      "key": "poll_interval",
+      "type": "number",
       "required": false,
       "default": 300,
-      "min": 60,
-      "max": 3600
+      "min": 120,
+      "max": 3600,
+      "label": { "en": "Reading interval (s)", "fr": "Intervalle de lecture (s)" },
+      "description": {
+        "en": "How often the account is read (one request, then three per installation): 300 s by default, the pace at which the portal itself refreshes. Nothing reads it faster, not even the test button.",
+        "fr": "Fréquence de lecture du compte (une requête, puis trois par installation) : 300 s par défaut, le rythme auquel le portail se met lui-même à jour. Rien ne le lit plus vite, pas même le bouton de test."
+      }
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
+      "key": "test_connection",
+      "timeout_seconds": 30,
+      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "description": {
+        "en": "Reads the account once if the reading interval has passed (else shows the last read and when the next one can be). After refused credentials, it is the only way to try them again without saving them. Sends nothing else.",
+        "fr": "Lit le compte une fois si l'intervalle de lecture est écoulé (sinon affiche la dernière lecture et l'heure de la prochaine possible). Après un refus des identifiants, c'est le seul moyen de les réessayer sans les enregistrer. N'envoie rien d'autre."
+      }
     },
     {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
+      "key": "accept_held_index",
+      "timeout_seconds": 30,
+      "label": { "en": "Accept the held index", "fr": "Accepter l'index retenu" },
       "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
-      },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
-      },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
+        "en": "Only when the status shows a solar production index held back (a jump or a drop) and it is right. First click: lists what is held, accepts nothing. Second click, 3 seconds to 5 minutes later (a double-click is one click): accepts exactly what was listed. A jump is then counted at once; a drop counts nothing. Saving the configuration never accepts it.",
+        "fr": "Seulement quand l'état affiche un index de production solaire retenu (un saut ou une baisse) et qu'il est juste. Premier clic : liste ce qui est retenu, n'accepte rien. Second clic, de 3 secondes à 5 minutes plus tard (un double-clic compte pour un seul) : accepte exactement ce qui a été listé. Un saut est alors compté d'un coup ; une baisse ne compte rien. Enregistrer la configuration ne l'accepte jamais."
+      }
     }
   ]
 }

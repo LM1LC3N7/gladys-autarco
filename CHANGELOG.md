@@ -12,44 +12,31 @@ the notes of the version's GitHub Release.
 
 ### Added
 
-- A working example of scene triggers, scene actions and dashboard widgets
-  (Gladys 5.1.0 or later).
-- `CHANGELOG.md`, rolled by the Release workflow.
-- A GitHub Release for every version, with its changelog section as notes: the
-  Gladys Supervision page links each version to the repository's releases.
-- CI runs the tests on Node 22 and 24, and builds the Docker image.
-- Dependabot keeps the npm dependencies and the GitHub Actions up to date.
-- `SECURITY.md` (how to report a vulnerability) and `CLAUDE.md` (project rules
-  for contributors and coding assistants).
-- Manifest tests: `version` matches `package.json`, `docker_image` is tagged
-  with it, descriptions hold 10 to 100 characters, placeholders are
-  multi-language objects.
-- The latitude and longitude fields show an example value as placeholder.
-
-### Changed
-
-- Node.js 22 or later is required (Node 20 is end-of-life).
-- Integration SDK 0.15.0. The tests now run against the fake Gladys of the
-  SDK, which refuses the payloads Gladys refuses.
-- The refresh interval is one minute minimum, the fastest Gladys polls a
-  device. The plug's power is only sent when it changes, and every 30
-  minutes otherwise.
-
-### Fixed
-
-- Gladys refused the devices of the Discovery tab: the weather station and
-  the plug declared their poll frequency in seconds instead of one of the
-  values Gladys accepts, and were never polled. They now poll every minute,
-  and the readings follow the refresh interval of the configuration.
-
-- The release commit no longer fails `npm run format:check`: the Release
-  workflow updates the manifest `version` and `docker_image` in place instead
-  of re-printing the whole file with `jq`.
-- The integration can write to `/data`: the image creates the directory owned
-  by the `node` user, a new Docker volume was owned by root.
-- A sub-container running the integration's own image follows it to the new
-  tag at each release, as well as in the manifest of the build summary: it kept
-  the previous tag, which may not exist on the registry. Sub-containers on a
-  third-party image (a broker, a database...) keep theirs.
-
-[Unreleased]: https://github.com/GladysAssistant/integration-template-js/commits/main
+- Reading of an Autarco account through the public API of my.autarco.com
+  (HTTP Basic with the e-mail address and the password, HTTPS), as the
+  python-autarco library does: the account, then the power and energy figures
+  and the inverters of each site, every 5 minutes by default (2 minutes to
+  1 hour). Read-only: only GET requests.
+- One device per site: solar power, solar production index (with its
+  30-minute production), production of the day and of the month, health; with
+  a battery its state of charge, powers (signed, as given) and counters; with
+  a meter the grid and consumption powers (signed, as given) and counters.
+  One device per inverter: power, total production, health, grid turned off.
+- The lifetime solar production of each site as the only energy index,
+  through the guard of gladys-p1-monitor: never 0, jumps and drops held until
+  the "Accept the held index" button is clicked twice. Every other counter is
+  a plain sensor: no double count with the main meter, no injection counted.
+- Never a read faster than the interval: not the test button, Discovery, a
+  reconnection, a save of an unchanged configuration nor a restart (the last
+  request is kept in `/data`). A read that ends after a restart or a new
+  configuration publishes nothing.
+- Refused credentials stop the reads for good, kept in `/data` (an 8-bit
+  marker only), without any automatic new try; new credentials or the test
+  button try again. HTTP 429 anywhere, and 5xx or 403 of the account, pause
+  the reads from 1 minute to 6 hours, kept in `/data`; an error or a refusal
+  of one site only leaves that site out. Answers bounded, no redirect
+  followed, the credentials never logged.
+- "Test the connection" and "Accept the held index" buttons.
+- Documentation in English and French; `LICENSE` (Apache-2.0) and
+  `THIRD_PARTY_NOTICES.md` (MIT notice of python-autarco), shipped in the
+  image.
