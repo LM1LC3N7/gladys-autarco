@@ -8,7 +8,8 @@ contributors.
 A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
 no build step) that runs in its own sandboxed Docker container and talks to
 Gladys through
-[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
+[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js)
+(v0.16),
 its only runtime dependency. It started from the official JavaScript template.
 
 It reads the installations of an **Autarco account** through the public API
@@ -26,7 +27,7 @@ structure, pace, pauses, refusal), `gladys-p1-monitor` (the guard),
 
 ```bash
 npm install
-npm test                                  # node --test, the built-in runner
+npm test                                  # node --test --test-timeout=60000
 node --test test/app.test.js              # one file
 npm run audit                             # npm audit --omit=dev
 npm run lint                              # ESLint
@@ -119,6 +120,12 @@ test/                             node --test, against the SDK's fake Gladys and
   included).
 - **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
   in English. Tests never touch the network.
+- **Features follow the core model.** Every feature has a numeric `min` and
+  `max` (0/0 for text and select), `read_only` and `has_feedback`: Gladys
+  answers HTTP 422 otherwise, and the SDK's fake Gladys does not check it
+  (`test/helpers/coreFeature.js` does). No device carries `poll_frequency`
+  (Gladys 5.3 polls a device with `poll_frequency` unless it says
+  `should_poll: false`).
 
 ## CI and pushes
 

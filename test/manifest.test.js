@@ -21,6 +21,7 @@ import {
   buildInverterDevice,
   buildSiteDevice,
 } from '../src/devices.js';
+import { assertCoreDevice } from './helpers/coreFeature.js';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const manifest = JSON.parse(read('gladys-assistant-integration.json'));
@@ -210,4 +211,17 @@ test('no double count: the solar index is the only index; signs never guessed', 
     assert.equal(entry.spec.category, C.UNKNOWN, key);
     assert.ok(entry.spec.min < 0, `${key} is signed`);
   }
+});
+
+test('every feature of every device (site with or without groups, inverter) has a numeric min and max and the other core fields', () => {
+  const gladys = createFakeGladys({ selector: 'autarco' });
+  const groups = [...new Set(SITE_CATALOG.map((e) => e.group).filter(Boolean))];
+  let features = 0;
+  for (const g of [[], ...groups.map((one) => [one]), groups]) {
+    const site = buildSiteDevice(gladys, { siteId: '1000', name: 'Home', groups: g });
+    features += assertCoreDevice(site, `site ${g.join('+') || 'bare'}`);
+  }
+  const inverter = buildInverterDevice(gladys, { serial: '380016531035', siteId: '1000' });
+  features += assertCoreDevice(inverter, 'inverter');
+  assert.ok(features >= SITE_CATALOG.length + INVERTER_CATALOG.length, `${features} features`);
 });
