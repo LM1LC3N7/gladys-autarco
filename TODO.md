@@ -26,6 +26,9 @@
 
 ## Ideas
 
+- Port the index guard to a session clock (`src/app.js:664` `new IndexGuard(..., this.now())`
+  and `:691` `guard.accept(total, now)` still use the wall clock); model: gladys-p1-monitor d4cff87.
+
 - A "Sensor only" option for the production index (as gladys-sonnen) if
   users already send the production of their Autarco inverters to Gladys
   through another integration.
