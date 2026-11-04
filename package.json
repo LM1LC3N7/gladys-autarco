@@ -1,6 +1,6 @@
 {
   "name": "gladys-autarco",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Autarco for Gladys Assistant: solar production, inverters, battery and the solar production index read through the public API of Autarco. Read-only.",
   "type": "module",
